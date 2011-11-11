@@ -77,8 +77,9 @@ class main:
             self.__log.info('Transactions disabled')
         
         # Create the tables
-        self.__log.info('Creating tables...')
-        self.__createTables(not transate)
+        if self.__config.getboolean('main', 'create'):
+            self.__log.info('Creating tables...')
+            self.__createTables(not transate)
     
         # Populate tables
         self.__log.info('Populating tables...')
@@ -96,7 +97,7 @@ class main:
         
         q = """
             CREATE TABLE %sgeoname (
-                geonameid INT IDENTITY NOT NULL,
+                id INT IDENTITY NOT NULL,
                 name VARCHAR(200) NOT NULL,
                 asciiname VARCHAR(200) NULL,
                 lat DECIMAL(15,12) NOT NULL,
@@ -144,7 +145,7 @@ class main:
         cursor.execute(q)
         
         q = """
-            INSERT INTO %sgeoname(geonameid, name, asciiname, lat, lng, feat_class,
+            INSERT INTO %sgeoname(id, name, asciiname, lat, lng, feat_class,
                 feat_code, country_code, admin1_code, admin2_code, admin3_code,
                 admin4_code, population, elevation, gtopo30,
                 timezone, mod_date)
