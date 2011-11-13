@@ -122,11 +122,12 @@ class main:
         q = """
             CREATE TABLE %sgeoadmins (
                 id INT IDENTITY NOT NULL,
+                country_code CHAR(2) NOT NULL,
                 admin1_code VARCHAR(20) NOT NULL,
-                admin2_code VARCHAR(80) NULL,
-                admin3_code VARCHAR(20) NULL,
-                admin4_code VARCHAR(20) NULL,
-                name VARCHAR(200) NULL,
+                admin2_code VARCHAR(80),
+                admin3_code VARCHAR(20),
+                admin4_code VARCHAR(20),
+                name VARCHAR(200),
                 asciiname VARCHAR(200) NOT NULL,
                 CONSTRAINT %sgeoadmins_pk PRIMARY KEY (id)
             )
@@ -136,7 +137,7 @@ class main:
         q = """
             CREATE UNIQUE  NONCLUSTERED INDEX %sgeoadmins_code_idx
             ON %sgeoadmins
-            ( admin1_code, admin2_code, admin3_code, admin4_code )
+            ( country_code, admin1_code, admin2_code, admin3_code, admin4_code )
         """ % (suffix, suffix, )
         cursor.execute(q)
         
@@ -243,10 +244,11 @@ class main:
         elif root == 'admin1CodesASCII' or root == 'admin2Codes':
             table = 'geoadmins'
             valmap = OrderedDict([
-                ('admin1_code', (0, lambda v: v.split('.')[0] if v!=None and len(v.split('.'))>0 else None)),
-                ('admin2_code', (0, lambda v: v.split('.')[1] if v!=None and len(v.split('.'))>1 else None)),
-                ('admin3_code', (0, lambda v: v.split('.')[2] if v!=None and len(v.split('.'))>2 else None)),
-                ('admin4_code', (0, lambda v: v.split('.')[3] if v!=None and len(v.split('.'))>3 else None)),
+                ('country_code', (0, lambda v: v.split('.')[0] if v!=None and len(v.split('.'))>0 else None)),
+                ('admin1_code', (0, lambda v: v.split('.')[1] if v!=None and len(v.split('.'))>1 else None)),
+                ('admin2_code', (0, lambda v: v.split('.')[2] if v!=None and len(v.split('.'))>2 else None)),
+                ('admin3_code', (0, lambda v: v.split('.')[3] if v!=None and len(v.split('.'))>3 else None)),
+                ('admin4_code', (0, lambda v: v.split('.')[4] if v!=None and len(v.split('.'))>4 else None)),
                 ('name', 1),
                 ('asciiname', 2),
             ])
