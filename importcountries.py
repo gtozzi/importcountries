@@ -23,12 +23,13 @@
 # - pyodbc (apt-get install python-pyodbc)
 #
 
-import sys
+import sys, os
 import time, datetime
 import logging
 import argparse, ConfigParser
 import pyodbc
 import zipfile
+from collections import OrderedDict
 
 class main:
     
@@ -82,8 +83,9 @@ class main:
             self.__createTables(not transate)
     
         # Populate tables
-        self.__log.info('Populating tables...')
-        self.__populateTables(not transate)
+        for src in self.__config.get('main', 'import').split(','):
+            self.__log.info('Populating ' + src + '...')
+            self.__populateTable(src, not transate)
         
         # Commit
         if transate:
@@ -94,6 +96,49 @@ class main:
         ''' Create the SQL tables '''
         suffix =  self.__config.get('main', 'suffix')
         cursor = self.__db.cursor()
+        
+        q = """
+            CREATE TABLE %scountries (
+                id CHAR(2) NOT NULL,
+                iso3 CHAR(3) NOT NULL,
+                iso_numeric SMALLINT NOT NULL,
+                fips CHAR(2),
+                name VARCHAR(255) NOT NULL,
+                capital VARCHAR(255) NULL,
+                area BIGINT NULL,
+                population INT NOT NULL,
+                continent CHAR(2) NOT NULL,
+                tld VARCHAR(10),
+                currency_code CHAR(3) NULL,
+                currency_name VARCHAR(25) NULL,
+                phone VARCHAR(25),
+                postal_code_format VARCHAR(25),
+                postal_code_regex VARCHAR(255),
+                CONSTRAINT %scountries_pk PRIMARY KEY (id)
+            )
+        """ % (suffix, suffix)
+        cursor.execute(q)
+        
+        q = """
+            CREATE TABLE %sgeoadmins (
+                id INT IDENTITY NOT NULL,
+                admin1_code VARCHAR(20) NOT NULL,
+                admin2_code VARCHAR(80) NULL,
+                admin3_code VARCHAR(20) NULL,
+                admin4_code VARCHAR(20) NULL,
+                name VARCHAR(200) NULL,
+                asciiname VARCHAR(200) NOT NULL,
+                CONSTRAINT %sgeoadmins_pk PRIMARY KEY (id)
+            )
+        """ % (suffix, suffix)
+        cursor.execute(q)
+        
+        q = """
+            CREATE UNIQUE  NONCLUSTERED INDEX %sgeoadmins_code_idx
+            ON %sgeoadmins
+            ( admin1_code, admin2_code, admin3_code, admin4_code )
+        """ % (suffix, suffix, )
+        cursor.execute(q)
         
         q = """
             CREATE TABLE %sgeoname (
@@ -133,33 +178,101 @@ class main:
         if commit:
             self.__db.commit()
     
-    def __populateTables(self, commit=False):
-        ''' Populate the tables '''
-        suffix =  self.__config.get('main', 'suffix')
+    def __populateTable(self, name, commit=False):
+        ''' Populate the given table '''
+        suffix = self.__config.get('main', 'suffix')
+        filename = self.__config.get('sources', name)
         cursor = self.__db.cursor()
         
-        zf = zipfile.ZipFile(self.__config.get('main', 'source'), 'r')
-        acf = zf.open('allCountries.txt', 'r')
+        (root, ext) = os.path.splitext(os.path.basename(filename))
+        if ext == '.zip':
+            zf = zipfile.ZipFile(filename, 'r')
+            acf = zf.open(root+'.txt', 'r')
+            size = zf.getinfo(root+'.txt').file_size
+        elif ext == '.txt':
+            acf = open(filename, 'r')
+            size = os.path.getsize(filename)
+        else:
+            raise RuntimeError('Unknown file extension: ' + ext)
         
-        q = "SET IDENTITY_INSERT %sgeoname ON;" % suffix
-        cursor.execute(q)
+        # Determine destination table and values map
+        if root == 'allCountries':
+            table = 'geoname'
+            valmap = OrderedDict([
+                ('id', 0),
+                ('name', 1),
+                ('asciiname', 2),
+                ('lat', 4),
+                ('lng', 5),
+                ('feat_class', 6),
+                ('feat_code', 7),
+                ('country_code', 8),
+                ('admin1_code', 10),
+                ('admin2_code', 11),
+                ('admin3_code', 12),
+                ('admin4_code', 13),
+                ('population', 14),
+                ('elevation', 15),
+                ('gtopo30', 16),
+                ('timezone', 17),
+                ('mod_date', (18, lambda v: datetime.datetime.strptime(v, r'%Y-%m-%d'))),
+            ])
+            linelen = 19
+            identity = True
+        elif root == 'countryInfo':
+            table = 'countries'
+            valmap = OrderedDict([
+                ('id', 0),
+                ('iso3', 1),
+                ('iso_numeric', 2),
+                ('fips', 3),
+                ('name', 4),
+                ('capital', 5),
+                ('area', (6, lambda v: int(float(v)))),
+                ('population', 7),
+                ('continent', 8),
+                ('tld', 9),
+                ('currency_code', 10),
+                ('currency_name', 11),
+                ('phone', 12),
+                ('postal_code_format', 13),
+                ('postal_code_regex', 14),
+            ])
+            linelen = 19
+            identity = False
+        elif root == 'admin1CodesASCII' or root == 'admin2Codes':
+            table = 'geoadmins'
+            valmap = OrderedDict([
+                ('admin1_code', (0, lambda v: v.split('.')[0] if v!=None and len(v.split('.'))>0 else None)),
+                ('admin2_code', (0, lambda v: v.split('.')[1] if v!=None and len(v.split('.'))>1 else None)),
+                ('admin3_code', (0, lambda v: v.split('.')[2] if v!=None and len(v.split('.'))>2 else None)),
+                ('admin4_code', (0, lambda v: v.split('.')[3] if v!=None and len(v.split('.'))>3 else None)),
+                ('name', 1),
+                ('asciiname', 2),
+            ])
+            linelen = 4
+            identity = False
+        else:
+            raise RuntimeError('Uknown file: ' + root)
+        
+        if identity:
+            q = "SET IDENTITY_INSERT %s%s ON" % (suffix, table)
+            cursor.execute(q)
         
         q = """
-            INSERT INTO %sgeoname(id, name, asciiname, lat, lng, feat_class,
-                feat_code, country_code, admin1_code, admin2_code, admin3_code,
-                admin4_code, population, elevation, gtopo30,
-                timezone, mod_date)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """ % (suffix, )
-        
+            INSERT INTO %s%s(%s) VALUES(%s)
+        """ % (suffix, table, ','.join(valmap.keys()), ','.join(['?',]*len(valmap)))
+
         i = 0
-        size = zf.getinfo('allCountries.txt').file_size
         done = 0
         for line in acf:
+            #Ignore lines starting with #
+            if line[0] == '#':
+                continue
             self.__log.debug(line)
             done += len(line)
             l = line.split("\t")
-            if len(l) != 19:
+            if len(l) != linelen:
                 err = 'Unvalid line %s: len %s' % (i, len(l))
                 self.__log.error(err)
                 raise RuntimeError(err)
@@ -173,13 +286,30 @@ class main:
                 
                 return v
             l = map(clean, l)
-            if l[18]:
-                l[18] = datetime.datetime.strptime(l[18], r'%Y-%m-%d')
+            
+            # Build parameters
+            p = []
+            for k in valmap.keys():
+                d = valmap.get(k)
+                if type(d) == int:
+                    p.append(l[d])
+                elif type(d) == tuple:
+                    if l[d[0]] == None:
+                        p.append(None)
+                    else:
+                        p.append(d[1](l[d[0]]))
+                else:
+                    raise RuntimeError('Error in valmap')
             
             # Insert data
-            p = (l[0],l[1],l[2],l[4],l[5],l[6],l[7],l[8],
-                l[10],l[11],l[12],l[13],l[14],l[15],l[16],l[17],l[18])
-            cursor.execute(q,p)
+            try:
+                cursor.execute(q,p)
+            except Exception as e:
+                self.__log.critical('Query: ' + q)
+                self.__log.critical('Params: ' + str(p))
+                self.__log.critical('SQL exception in line ' + str(i+1) + '!')
+                self.__log.critical(str(line))
+                raise e
             
             if commit:
                 self.__db.commit()
@@ -194,8 +324,9 @@ class main:
                     str(datetime.timedelta(seconds=int(togo))) + ' to go.')
             i += 1
         
-        q = "SET IDENTITY_INSERT %sgeoname OFF;" % suffix
-        cursor.execute(q)
+        if identity:
+            q = "SET IDENTITY_INSERT %s%s OFF" % (suffix, table)
+            cursor.execute(q)
     
 if __name__ == '__main__':
     sys.exit(main().Run())
