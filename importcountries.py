@@ -34,7 +34,7 @@ from collections import OrderedDict
 class main:
     
     NAME = 'importcountries'
-    VERSION = '0.5'
+    VERSION = '0.6'
     
     def Run(self):
         '''This is the entry point'''
@@ -150,7 +150,7 @@ class main:
                 lng DECIMAL(16,12) NOT NULL,
                 feat_class CHAR(1) NULL,
                 feat_code VARCHAR(10) NULL,
-                country_code CHAR(2) NOT NULL,
+                country_code CHAR(2) NULL,
                 admin1_code VARCHAR(20) NULL,
                 admin2_code VARCHAR(80) NULL,
                 admin3_code VARCHAR(20) NULL,
@@ -320,7 +320,7 @@ class main:
             if not i % 1000:
                 progress = float(done) / size
                 elapsed = time.time() - self.__start
-                togo = float(elapsed) / progress
+                togo = ( float(elapsed) / progress ) - elapsed
                 self.__log.info(str(round(progress*100,2))+'%, ' + \
                     str(datetime.timedelta(seconds=int(elapsed))) + ' elapsed, ' + \
                     str(datetime.timedelta(seconds=int(togo))) + ' to go.')
